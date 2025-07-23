@@ -214,7 +214,7 @@ def config_polling_thread():
 
 def main():
     """Funzione principale"""
-    global current_config, driver, ppt_process, ppt_opened
+    global current_config, driver, ppt_process, ppt_opened, web_state, web_toggle_counter, touch_start_time
     
     # Crea configurazione di default se non esiste
     create_default_config()
