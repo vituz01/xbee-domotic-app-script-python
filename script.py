@@ -30,7 +30,7 @@ livelli_pwm = [0, 0.25, 0.5, 0.75, 1.0]
 ppt_path = r"C:\Users\Giacomo\OneDrive - Politecnico di Bari\Desktop\MECHATRONICS\Project.pptx[1].pptx"  # Percorso PPT
 
 # File di configurazione JSON
-CONFIG_FILE = "config.json"
+CONFIG_FILE = "../config/config.json"
 
 # Configurazione di default
 DEFAULT_CONFIG = {
