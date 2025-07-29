@@ -3,7 +3,6 @@ from digi.xbee.io import IOLine, IOValue
 import time
 import threading
 import subprocess
-import pyautogui
 import pychromecast
 from pychromecast.controllers.youtube import YouTubeController
 import json
