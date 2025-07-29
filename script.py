@@ -15,7 +15,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 
 # === CONFIGURAZIONE ===
-PORT = "COM10"
+PORT = "/dev/ttyUSB0"
 BAUD_RATE = 9600
 
 NODE_A_ADDR = "0013A200424957C7"  # Nodo A: touch sensor
