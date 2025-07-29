@@ -296,34 +296,6 @@ def main():
                             except Exception as e:
                                 print("⚠️ Errore invio SPACE:", e)
 
-                elif modalità_corrente == "ppt":
-                    if touch_duration >= 3.0:
-                        # Tocco lungo chiude PPT
-                        if ppt_opened:
-                            try:
-                                subprocess.run(["taskkill", "/IM", "POWERPNT.EXE", "/F"], shell=True)
-                                ppt_process = None
-                                ppt_opened = False
-                                print("🛑 Tocco lungo → PowerPoint chiuso.")
-                            except Exception as e:
-                                print(f"⚠️ Errore chiusura PPT: {e}")
-                        else:
-                            print("ℹ️ PPT non era aperto.")
-                    else:
-                        if not ppt_opened:
-                            print("📽 Tocco → Apro PowerPoint.")
-                            try:
-                                ppt_process = subprocess.Popen(['start', '', ppt_path], shell=True)
-                                ppt_opened = True
-                            except Exception as e:
-                                print(f"⚠️ Errore apertura PPT: {e}")
-                        else:
-                            print("➡️ Tocco → Avanzo slide PowerPoint.")
-                            try:
-                                pyautogui.press('right')
-                            except Exception as e:
-                                print(f"⚠️ Errore invio tasto avanti slide: {e}")
-
                 elif modalità_corrente == "chromecast":
                     if touch_duration >= 3.0:
                         print("🛑 Tocco lungo → Stop video Chromecast.")
