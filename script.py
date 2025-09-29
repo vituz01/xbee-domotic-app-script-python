@@ -28,7 +28,7 @@ PIN_LED_PWM = IOLine.DIO10_PWM0
 
 # Configurazione email PPT
 EMAIL_SENDER = "livetouch64@gmail.com"
-EMAIL_PASSWORD = "otmb ffuu fsff zpod"
+EMAIL_PASSWORD = "$Liv&Touch46"
 EMAIL_RECEIVER = "francescodecarne@live.com"
 SLIDES_URL = "https://docs.google.com/presentation/d/18ePgm_ytSiJXVkWSCgmbCQsqELal2Sh1kVYaTQ2mnyk/edit?slide=id.p1#slide=id.p1"
 
