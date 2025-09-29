@@ -1,5 +1,5 @@
 from digi.xbee.devices import XBeeDevice, RemoteXBeeDevice, XBee64BitAddress
-from digi.xbee.io import IOLine, IOValue
+from digi.xbee.io import IOLine, IOValue, IOMode
 import time
 import threading
 import subprocess
@@ -8,6 +8,8 @@ from pychromecast.controllers.youtube import YouTubeController
 import json
 import os
 from datetime import datetime
+import smtplib
+from email.message import EmailMessage
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -24,9 +26,15 @@ NODE_B_ADDR = "0013A200424957CB"  # Nodo B: LED
 PIN_TOUCH = IOLine.DIO0_AD0
 PIN_LED_PWM = IOLine.DIO10_PWM0
 
-livelli_pwm = [0, 0.25, 0.5, 0.75, 1.0]
+# Configurazione email PPT
+EMAIL_SENDER = "livetouch64@gmail.com"
+EMAIL_PASSWORD = "otmb ffuu fsff zpod"
+EMAIL_RECEIVER = "francescodecarne@live.com"
+SLIDES_URL = "https://docs.google.com/presentation/d/18ePgm_ytSiJXVkWSCgmbCQsqELal2Sh1kVYaTQ2mnyk/edit?slide=id.p1#slide=id.p1"
 
-ppt_path = r"C:\Users\Giacomo\OneDrive - Politecnico di Bari\Desktop\MECHATRONICS\Project.pptx[1].pptx"  # Percorso PPT
+# Variabili relè
+relay_state = False
+RELAY_ACTIVE_LOW = True
 
 # File di configurazione JSON
 CONFIG_FILE = "../config/config.json"
@@ -34,21 +42,16 @@ CONFIG_FILE = "../config/config.json"
 # Configurazione di default
 DEFAULT_CONFIG = {
     "mode": "led",
-    "webUrl": "https://www.youtube.com/watch?v=K3OLrDA_nto",
     "chromecastName": "Office TV",
     "youtubeVideoId": "K3OLrDA_nto",
+    "slidesUrl": "https://docs.google.com/presentation/d/18ePgm_ytSiJXVkWSCgmbCQsqELal2Sh1kVYaTQ2mnyk/edit?slide=id.p1#slide=id.p1",
+    "emailReceiver": "francescodecarne@live.com",
     "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 }
 
 # Variabili globali
 current_config = DEFAULT_CONFIG.copy()
-driver = None
-web_state = 0
-web_toggle_counter = 0
 touch_start_time = None
-
-ppt_process = None
-ppt_opened = False
 
 cast = None
 yt = None
@@ -60,7 +63,7 @@ def create_default_config():
     if not os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
-        print(f"📝 Creato file di configurazione di default: {CONFIG_FILE}")
+        print(f"📁 Creato file di configurazione di default: {CONFIG_FILE}")
 
 
 def load_config():
@@ -86,34 +89,18 @@ def load_config():
             create_default_config()
             
     except json.JSONDecodeError as e:
-        print(f"❌ Errore lettura JSON: {e}")
+        print(f"⚠ Errore lettura JSON: {e}")
     except Exception as e:
-        print(f"❌ Errore caricamento config: {e}")
+        print(f"⚠ Errore caricamento config: {e}")
     
     return False
 
 
 def handle_mode_change(old_mode, new_mode):
     """Gestisce il cambio di modalità chiudendo le risorse della modalità precedente"""
-    global driver, ppt_process, ppt_opened, cast, browser
+    global cast, browser
     
     print(f"🔄 Cambio modalità: {old_mode} → {new_mode}")
-    
-    # Chiudi browser se cambio modalità e non è web
-    if new_mode != "web" and driver:
-        driver.quit()
-        print("🌐 Browser chiuso per cambio modalità.")
-        driver = None
-        
-    # Chiudi PPT se cambio modalità e non è ppt
-    if new_mode != "ppt" and ppt_opened:
-        try:
-            subprocess.run(["taskkill", "/IM", "POWERPNT.EXE", "/F"], shell=True)
-            ppt_process = None
-            ppt_opened = False
-            print("🛑 PowerPoint chiuso per cambio modalità.")
-        except Exception as e:
-            print(f"⚠️ Errore chiusura PPT: {e}")
             
     # Stop Chromecast se cambio modalità e non è chromecast
     if new_mode != "chromecast":
@@ -131,7 +118,7 @@ def connect_chromecast():
         cast = next((cc for cc in chromecasts if cc.name == chromecast_name), None)
 
         if not cast:
-            print(f"❌ Chromecast '{chromecast_name}' non trovato.")
+            print(f"⚠ Chromecast '{chromecast_name}' non trovato.")
             return False
 
         cast.wait()
@@ -141,7 +128,7 @@ def connect_chromecast():
         return True
 
     except Exception as e:
-        print(f"⚠️ Errore connessione Chromecast: {e}")
+        print(f"⚠ Errore connessione Chromecast: {e}")
         return False
 
 
@@ -153,10 +140,10 @@ def play_youtube():
             return
     try:
         video_id = current_config.get("youtubeVideoId", "K3OLrDA_nto")
-        print(f"▶️ Avvio video {video_id} su Chromecast.")
+        print(f"▶ Avvio video {video_id} su Chromecast.")
         yt.play_video(video_id)
     except Exception as e:
-        print(f"⚠️ Errore avvio video: {e}")
+        print(f"⚠ Errore avvio video: {e}")
 
 
 def pause_resume_youtube():
@@ -173,19 +160,19 @@ def pause_resume_youtube():
 
         if player_state == "IDLE":
             video_id = current_config.get("youtubeVideoId", "K3OLrDA_nto")
-            print(f"▶️ Nessun video in riproduzione, avvio il video {video_id}...")
+            print(f"▶ Nessun video in riproduzione, avvio il video {video_id}...")
             yt.play_video(video_id)
         elif player_state == "PLAYING":
             print("⏸ Pausa riproduzione.")
             cast.media_controller.pause()
         elif player_state == "PAUSED":
-            print("▶️ Riprendo riproduzione.")
+            print("▶ Riprendo riproduzione.")
             cast.media_controller.play()
         else:
-            print(f"ℹ️ Stato player non gestito: {player_state}")
+            print(f"ℹ Stato player non gestito: {player_state}")
 
     except Exception as e:
-        print(f"⚠️ Errore controllo stato media: {e}")
+        print(f"⚠ Errore controllo stato media: {e}")
 
 
 def stop_youtube():
@@ -201,7 +188,69 @@ def stop_youtube():
                 browser.stop_discovery()
                 browser = None
         except Exception as e:
-            print(f"⚠️ Errore stop video: {e}")
+            print(f"⚠ Errore stop video: {e}")
+
+
+def ensure_pin_mode_pwm(remote):
+    """Configura DIO10 come PWM (per modalità LED)."""
+    try:
+        remote.set_io_configuration(PIN_LED_PWM, IOMode.PWM)
+        return True
+    except Exception as e:
+        print(f"⚠ Errore set PWM mode: {e}")
+        return False
+
+
+def ensure_pin_mode_digital(remote, default_high=True):
+    """
+    Configura DIO10 come uscita digitale.
+    default_high=True -> DIGITAL_OUT_HIGH (sicuro per relè active-LOW)
+    """
+    try:
+        mode = IOMode.DIGITAL_OUT_HIGH if default_high else IOMode.DIGITAL_OUT_LOW
+        remote.set_io_configuration(PIN_LED_PWM, mode)
+        return True
+    except Exception as e:
+        print(f"⚠ Errore set Digital Output mode: {e}")
+        return False
+
+
+def set_relay(remote, on: bool):
+    """Comanda il relè rispettando la logica active-low/high."""
+    try:
+        if RELAY_ACTIVE_LOW:
+            value = IOValue.LOW if on else IOValue.HIGH
+        else:
+            value = IOValue.HIGH if on else IOValue.LOW
+        remote.set_dio_value(PIN_LED_PWM, value)
+    except Exception as e:
+        print(f"⚠ Errore comando relè: {e}")
+
+
+def relay_safe_off(remote):
+    """Porta il relè a OFF in sicurezza secondo la logica."""
+    set_relay(remote, False)
+
+
+def send_ppt_email():
+    """Invia email con link presentazione"""
+    try:
+        slides_url = current_config.get("slidesUrl", SLIDES_URL)
+        
+        msg = EmailMessage()
+        msg['Subject'] = "Avvia la presentazione"
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = EMAIL_RECEIVER
+        msg.set_content(f"Clicca qui per aprire la presentazione: {slides_url}")
+        
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            smtp.send_message(msg)
+        print("✅ Email con presentazione inviata!")
+        return True
+    except Exception as e:
+        print(f"⚠ Errore invio email: {e}")
+        return False
 
 
 def config_polling_thread():
@@ -213,7 +262,7 @@ def config_polling_thread():
 
 def main():
     """Funzione principale"""
-    global current_config, driver, ppt_process, ppt_opened, web_state, web_toggle_counter, touch_start_time
+    global current_config, touch_start_time, relay_state
     
     # Crea configurazione di default se non esiste
     create_default_config()
@@ -230,13 +279,12 @@ def main():
         node_a = RemoteXBeeDevice(device, XBee64BitAddress.from_hex_string(NODE_A_ADDR))
         node_b = RemoteXBeeDevice(device, XBee64BitAddress.from_hex_string(NODE_B_ADDR))
 
-        livello_corrente = 0
-        direzione = 1
-        prev_value = IOValue.LOW
+        # Safe-state iniziale: configura come Digital Output e metti il relay OFF
+        if ensure_pin_mode_digital(node_b):
+            relay_safe_off(node_b)
+            print("🔌 Relè inizialmente spento.")
 
-        # Imposto LED spento all'avvio
-        node_b.set_pwm_duty_cycle(PIN_LED_PWM, livelli_pwm[livello_corrente])
-        print("💡 LED inizialmente spento.")
+        prev_value = IOValue.LOW
 
         # Avvia thread per il polling della configurazione
         threading.Thread(target=config_polling_thread, daemon=True).start()
@@ -255,45 +303,20 @@ def main():
                 modalità_corrente = current_config.get("mode", "led")
 
                 if modalità_corrente == "led":
-                    # Gestione LED PWM
-                    livello_corrente += direzione
-                    if livello_corrente >= len(livelli_pwm):
-                        livello_corrente = len(livelli_pwm) - 2
-                        direzione = -1
-                    elif livello_corrente < 0:
-                        livello_corrente = 1
-                        direzione = 1
-
-                    pwm_duty = livelli_pwm[livello_corrente]
-                    node_b.set_pwm_duty_cycle(PIN_LED_PWM, pwm_duty)
-                    print(f"🔆 LED intensità: {pwm_duty * 100:.0f}%")
-
-                elif modalità_corrente == "web":
-                    if touch_duration >= 3.0:
-                        if driver:
-                            print("🛑 Tocco lungo → Chiudo video.")
-                            driver.quit()
-                            driver = None
-                            web_state = 0
-                            web_toggle_counter = 0
-                    else:
-                        if web_state == 0:
-                            web_url = current_config.get("webUrl", "https://www.youtube.com/watch?v=K3OLrDA_nto")
-                            print(f"🌐 Tocco 1 → Apro il video: {web_url}")
-                            chrome_options = Options()
-                            chrome_options.add_experimental_option("detach", True)
-                            driver = webdriver.Chrome(options=chrome_options)
-                            driver.get(web_url)
-                            web_state = 1
-                            web_toggle_counter = 1
+                    # MODALITÀ RELAY (rinominata da LED)
+                    if ensure_pin_mode_digital(node_b):
+                        if touch_duration >= 3.0:
+                            relay_state = False
+                            set_relay(node_b, relay_state)
+                            print("🛑 Tocco lungo → RELAY OFF.")
                         else:
-                            web_toggle_counter += 1
-                            action = "⏸ Pausa" if web_toggle_counter % 2 == 0 else "▶️ Play"
-                            print(f"Tocco {web_toggle_counter} → {action}")
-                            try:
-                                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.SPACE)
-                            except Exception as e:
-                                print("⚠️ Errore invio SPACE:", e)
+                            relay_state = not relay_state
+                            set_relay(node_b, relay_state)
+                            print(f"🔀 Tocco breve → RELAY {'ON' if relay_state else 'OFF'}.")
+
+                elif modalità_corrente == "ppt":
+                    print("📧 Tocco → Invio email con link presentazione")
+                    send_ppt_email()
 
                 elif modalità_corrente == "chromecast":
                     if touch_duration >= 3.0:
@@ -307,16 +330,20 @@ def main():
             time.sleep(0.1)
 
     except Exception as e:
-        print(f"❌ Errore: {e}")
+        print(f"⚠ Errore: {e}")
 
     finally:
+        # Safe-state: prova a spegnere il relè
+        try:
+            if 'node_b' in locals():
+                ensure_pin_mode_digital(node_b)
+                relay_safe_off(node_b)
+        except:
+            pass
+            
         if device and device.is_open():
             device.close()
             print("🔒 Coordinator chiuso.")
-        if driver:
-            driver.quit()
-        if ppt_opened:
-            subprocess.run(["taskkill", "/IM", "POWERPNT.EXE", "/F"], shell=True)
         if cast:
             try:
                 cast.disconnect()
