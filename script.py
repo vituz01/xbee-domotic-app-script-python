@@ -28,7 +28,7 @@ PIN_LED_PWM = IOLine.DIO10_PWM0
 
 # Configurazione email PPT
 EMAIL_SENDER = "livetouch64@gmail.com"
-EMAIL_PASSWORD = "otmb ffuu fsff zpod"
+EMAIL_PASSWORD = "umra navd ratl dbwl"
 EMAIL_RECEIVER = "francescodecarne@live.com"
 SLIDES_URL = "https://docs.google.com/presentation/d/18ePgm_ytSiJXVkWSCgmbCQsqELal2Sh1kVYaTQ2mnyk/edit?slide=id.p1#slide=id.p1"
 
@@ -272,85 +272,97 @@ def main():
     
     device = XBeeDevice(PORT, BAUD_RATE)
 
+    device.open()
+    print("✅ Coordinator aperto.")
+
+    node_a = RemoteXBeeDevice(device, XBee64BitAddress.from_hex_string(NODE_A_ADDR))
+    node_b = RemoteXBeeDevice(device, XBee64BitAddress.from_hex_string(NODE_B_ADDR))
+
+    # Safe-state iniziale: configura come Digital Output e metti il relay OFF
     try:
-        device.open()
-        print("✅ Coordinator aperto.")
-
-        node_a = RemoteXBeeDevice(device, XBee64BitAddress.from_hex_string(NODE_A_ADDR))
-        node_b = RemoteXBeeDevice(device, XBee64BitAddress.from_hex_string(NODE_B_ADDR))
-
-        # Safe-state iniziale: configura come Digital Output e metti il relay OFF
         if ensure_pin_mode_digital(node_b):
             relay_safe_off(node_b)
             print("🔌 Relè inizialmente spento.")
+    except Exception as e:
+        if "TX failure" in str(e):
+            print(f"⚠ Errore set Digital Output mode: TX failure (iniziale, script continua)")
+        else:
+            print(f"⚠ Errore set Digital Output mode: {e}")
 
-        prev_value = IOValue.LOW
+    prev_value = IOValue.LOW
 
-        # Avvia thread per il polling della configurazione
-        threading.Thread(target=config_polling_thread, daemon=True).start()
-        print(f"🔄 Avviato polling configurazione (file: {CONFIG_FILE})")
+    # Avvia thread per il polling della configurazione
+    threading.Thread(target=config_polling_thread, daemon=True).start()
+    print(f"🔄 Avviato polling configurazione (file: {CONFIG_FILE})")
 
-        while True:
+    while True:
+        try:
             value = node_a.get_dio_value(PIN_TOUCH)
+        except Exception as e:
+            if "TX failure" in str(e):
+                print(f"⚠ Errore: TX failure (get_dio_value, script continua)")
+                time.sleep(0.5)
+                continue
+            else:
+                print(f"⚠ Errore: {e}")
+                time.sleep(0.5)
+                continue
 
-            # Tocco RILEVATO
-            if value == IOValue.HIGH and prev_value == IOValue.LOW:
-                touch_start_time = time.time()
+        # Tocco RILEVATO
+        if value == IOValue.HIGH and prev_value == IOValue.LOW:
+            touch_start_time = time.time()
 
-            # Fine tocco (rilascio)
-            if value == IOValue.LOW and prev_value == IOValue.HIGH:
-                touch_duration = time.time() - touch_start_time if touch_start_time else 0
-                modalità_corrente = current_config.get("mode", "led")
+        # Fine tocco (rilascio)
+        if value == IOValue.LOW and prev_value == IOValue.HIGH:
+            touch_duration = time.time() - touch_start_time if touch_start_time else 0
+            modalità_corrente = current_config.get("mode", "led")
 
-                if modalità_corrente == "led":
-                    # MODALITÀ RELAY (rinominata da LED)
+            if modalità_corrente == "led":
+                # MODALITÀ RELAY (rinominata da LED)
+                try:
                     if ensure_pin_mode_digital(node_b):
                         if touch_duration >= 3.0:
                             relay_state = False
-                            set_relay(node_b, relay_state)
-                            print("🛑 Tocco lungo → RELAY OFF.")
+                            try:
+                                set_relay(node_b, relay_state)
+                            except Exception as e:
+                                if "TX failure" in str(e):
+                                    print("⚠ Errore comando relè: TX failure (script continua)")
+                                else:
+                                    print(f"⚠ Errore comando relè: {e}")
+                            print("� Tocco lungo → RELAY OFF.")
                         else:
                             relay_state = not relay_state
-                            set_relay(node_b, relay_state)
+                            try:
+                                set_relay(node_b, relay_state)
+                            except Exception as e:
+                                if "TX failure" in str(e):
+                                    print("⚠ Errore comando relè: TX failure (script continua)")
+                                else:
+                                    print(f"⚠ Errore comando relè: {e}")
                             print(f"🔀 Tocco breve → RELAY {'ON' if relay_state else 'OFF'}.")
-
-                elif modalità_corrente == "ppt":
-                    print("📧 Tocco → Invio email con link presentazione")
-                    send_ppt_email()
-
-                elif modalità_corrente == "chromecast":
-                    if touch_duration >= 3.0:
-                        print("🛑 Tocco lungo → Stop video Chromecast.")
-                        stop_youtube()
+                except Exception as e:
+                    if "TX failure" in str(e):
+                        print("⚠ Errore set Digital Output mode: TX failure (script continua)")
                     else:
-                        print("👆 Tocco breve → Pausa/riprendi video Chromecast.")
-                        pause_resume_youtube()
+                        print(f"⚠ Errore set Digital Output mode: {e}")
 
-            prev_value = value
-            time.sleep(0.1)
+            elif modalità_corrente == "ppt":
+                print("📧 Tocco → Invio email con link presentazione")
+                send_ppt_email()
 
-    except Exception as e:
-        print(f"⚠ Errore: {e}")
+            elif modalità_corrente == "chromecast":
+                if touch_duration >= 3.0:
+                    print("� Tocco lungo → Stop video Chromecast.")
+                    stop_youtube()
+                else:
+                    print("👆 Tocco breve → Pausa/riprendi video Chromecast.")
+                    pause_resume_youtube()
 
-    finally:
-        # Safe-state: prova a spegnere il relè
-        try:
-            if 'node_b' in locals():
-                ensure_pin_mode_digital(node_b)
-                relay_safe_off(node_b)
-        except:
-            pass
-            
-        if device and device.is_open():
-            device.close()
-            print("🔒 Coordinator chiuso.")
-        if cast:
-            try:
-                cast.disconnect()
-            except:
-                pass
-        if browser:
-            browser.stop_discovery()
+        prev_value = value
+        time.sleep(0.1)
+
+    # Il ciclo while non termina mai, quindi la connessione rimane aperta
 
 
 if __name__ == "__main__":
